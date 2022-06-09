@@ -5,7 +5,6 @@ from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.layers import Input, Flatten, Dense,Dropout, AveragePooling2D
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
-from argparse import ArgumentTypeError
 
 
 def create_model(opt):
