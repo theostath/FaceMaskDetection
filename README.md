@@ -50,6 +50,7 @@ Test the model:
 ```bash
 python test.py --name MaskDetect
 ```
+First, you need to change the directory in base_model.py, line 186 for the Haar cascade classifier that performs the face detection.
 
 For more options you can see the parser created in [options]/base_options.py or test_option.py.
 
