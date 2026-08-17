@@ -100,7 +100,7 @@ def load_dataset(config: TrainConfig, split: str = "train") -> tuple[np.ndarray,
             f"{split} directory not found: {directory}\n"
             "Download a dataset and arrange it so that "
             f"{directory / 'with_mask'} and {directory / 'without_mask'} exist. "
-            "See the README for dataset sources."
+            "See the README for sources and the facemask-prepare command."
         )
 
     print(f"(Info) loading {split} images...")

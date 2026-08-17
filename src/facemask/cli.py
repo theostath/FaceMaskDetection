@@ -1,6 +1,9 @@
-"""Command line entry points for training and live detection.
+"""Command line entry points for dataset preparation, training, and detection.
 
-Two commands are installed with the package:
+Three commands are installed with the package:
+
+``facemask-prepare``
+    Split a flat two-class image directory into train and test sets.
 
 ``facemask-train``
     Train the classifier on a downloaded dataset.
@@ -150,6 +153,77 @@ def build_detect_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_prepare_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the dataset preparation command.
+
+    Returns:
+        The configured parser.
+    """
+    parser = argparse.ArgumentParser(
+        prog="facemask-prepare",
+        description=(
+            "Split a flat two-class image directory into train and test sets. "
+            "The split is stratified and seeded, so it is reproducible."
+        ),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        required=True,
+        help="directory containing with_mask/ and without_mask/ folders",
+    )
+    parser.add_argument(
+        "--dest",
+        type=Path,
+        default=DEFAULT_DATAROOT,
+        help="directory to create train/ and test/ beneath",
+    )
+    parser.add_argument(
+        "--test-fraction",
+        type=float,
+        default=0.2,
+        help="share of each class held out for testing",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="shuffle seed")
+    parser.add_argument(
+        "--move",
+        action="store_true",
+        help="move files instead of copying them",
+    )
+    parser.add_argument("--version", action="version", version=f"facemask {__version__}")
+    return parser
+
+
+def prepare_main(argv: Sequence[str] | None = None) -> int:
+    """Entry point for ``facemask-prepare``.
+
+    Args:
+        argv: Arguments to parse; defaults to ``sys.argv[1:]``.
+
+    Returns:
+        0 on success, 1 if the dataset could not be prepared.
+    """
+    args = build_prepare_parser().parse_args(argv)
+
+    from facemask.prepare import prepare_dataset
+
+    try:
+        counts = prepare_dataset(
+            source=args.source,
+            destination=args.dest,
+            test_fraction=args.test_fraction,
+            seed=args.seed,
+            move=args.move,
+        )
+    except (FileNotFoundError, ValueError, OSError) as error:
+        return _report(error)
+
+    total = sum(sum(classes.values()) for classes in counts.values())
+    print(f"(Info) prepared {total} images under {args.dest}")
+    return 0
+
+
 def _report(error: Exception) -> int:
     """Print an error without a traceback and return a failing exit code.
 
@@ -236,4 +310,11 @@ def detect_main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-__all__ = ["build_detect_parser", "build_train_parser", "detect_main", "train_main"]
+__all__ = [
+    "build_detect_parser",
+    "build_prepare_parser",
+    "build_train_parser",
+    "detect_main",
+    "prepare_main",
+    "train_main",
+]

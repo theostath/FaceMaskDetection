@@ -125,7 +125,36 @@ def test_detect_main_rejects_an_out_of_range_confidence(tmp_path: Path, capsys) 
     assert "confidence must be in [0, 1]" in capsys.readouterr().out
 
 
+def test_prepare_parser_requires_a_source() -> None:
+    """--source is mandatory."""
+    from facemask.cli import build_prepare_parser
+
+    with pytest.raises(SystemExit) as excinfo:
+        build_prepare_parser().parse_args([])
+    assert excinfo.value.code == 2
+
+
+def test_prepare_parser_defaults() -> None:
+    """Preparation defaults to the documented dataset directory."""
+    from facemask.cli import build_prepare_parser
+
+    args = build_prepare_parser().parse_args(["--source", "flat"])
+    assert args.source == Path("flat")
+    assert args.dest == Path("face-mask-dataset")
+    assert args.test_fraction == pytest.approx(0.2)
+    assert args.move is False
+
+
 @pytest.mark.parametrize("flag", ["--val-size", "--test-size", "--test_size"])
 def test_validation_fraction_accepts_every_spelling(flag: str) -> None:
     """The renamed option keeps its previous spellings working."""
     assert build_train_parser().parse_args([flag, "0.3"]).val_size == pytest.approx(0.3)
+
+
+def test_prepare_main_reports_a_missing_source(tmp_path: Path, capsys) -> None:
+    """A missing source exits 1 with a message rather than a traceback."""
+    from facemask.cli import prepare_main
+
+    code = prepare_main(["--source", str(tmp_path / "absent"), "--dest", str(tmp_path / "out")])
+    assert code == 1
+    assert "source directory not found" in capsys.readouterr().out

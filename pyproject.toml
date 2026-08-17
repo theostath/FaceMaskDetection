@@ -52,6 +52,7 @@ Issues = "https://github.com/theostath/FaceMaskDetection/issues"
 [project.scripts]
 facemask-train = "facemask.cli:train_main"
 facemask-detect = "facemask.cli:detect_main"
+facemask-prepare = "facemask.cli:prepare_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/facemask"]
