@@ -12,6 +12,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 from facemask.config import CLASS_NAMES, IMAGE_SIZE, DetectConfig
 from facemask.model import load_trained_model
@@ -81,8 +82,14 @@ def classify_face(model: object, face: np.ndarray) -> tuple[str, float]:
         The predicted class name and its probability.
     """
     resized = cv2.resize(face, (IMAGE_SIZE, IMAGE_SIZE))
-    normalized = resized / 255.0
-    batch = np.reshape(normalized, (1, IMAGE_SIZE, IMAGE_SIZE, 3))
+
+    # Match training exactly. Training loaded images with keras load_img, which
+    # yields RGB, and scaled them with MobileNetV2's preprocess_input, which
+    # maps to [-1, 1]. OpenCV frames are BGR, and the previous code divided by
+    # 255 to reach [0, 1], so the network saw reversed channels in the wrong
+    # range for every live prediction.
+    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype("float32")
+    batch = preprocess_input(np.expand_dims(rgb, axis=0))
 
     probabilities = model.predict(batch, verbose=0)[0]
     index = int(np.argmax(probabilities))
