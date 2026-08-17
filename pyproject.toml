@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "facemask"
+version = "1.0.0"
+description = "Real-time face mask detection from a webcam using MobileNetV2 transfer learning"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "theostath" }]
+keywords = ["computer-vision", "face-mask-detection", "keras", "mobilenetv2", "transfer-learning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+# TensorFlow 2.15 publishes wheels for cp39/cp310/cp311 only. The upper bound
+# tracks that wheel availability, not a preference. See docs/adr/0001.
+requires-python = ">=3.10,<3.12"
+
+dependencies = [
+    # 2.15 is the last release where ImageDataGenerator and Adam(decay=)
+    # still exist; both were removed in Keras 3 (TF 2.16+).
+    "tensorflow>=2.15,<2.16",
+    "numpy>=1.23,<2",
+    "opencv-python>=4.8",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
+    # keras.utils.load_img imports PIL directly. It would otherwise arrive only
+    # as a transitive dependency of matplotlib, which is used solely for the
+    # training figure -- an unrelated dependency to hang image loading on.
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/theostath/FaceMaskDetection"
+Issues = "https://github.com/theostath/FaceMaskDetection/issues"
+
+[project.scripts]
+facemask-train = "facemask.cli:train_main"
+facemask-detect = "facemask.cli:detect_main"
+facemask-prepare = "facemask.cli:prepare_main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/facemask"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "PTH",  # flake8-use-pathlib
+    "RUF",  # ruff-specific
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
