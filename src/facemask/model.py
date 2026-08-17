@@ -75,7 +75,14 @@ def build_model(config: TrainConfig) -> Model:
         decay_rate=config.lr / config.n_epochs,
     )
     optimizer = Adam(learning_rate=schedule, beta_1=config.beta1, beta_2=config.beta2)
-    model.compile(optimizer=optimizer, loss="binary_crossentropy", metrics=["accuracy"])
+
+    # categorical_crossentropy is the loss that matches a softmax head with
+    # one-hot labels. At two units it happens to be algebraically identical to
+    # the binary_crossentropy used previously -- both reduce to -log(p) for the
+    # correct class -- so this changes nothing today. It stops being identical
+    # the moment a third class is added, where binary_crossentropy would keep
+    # training without complaint on a quietly wrong objective.
+    model.compile(optimizer=optimizer, loss="categorical_crossentropy", metrics=["accuracy"])
 
     return model
 
