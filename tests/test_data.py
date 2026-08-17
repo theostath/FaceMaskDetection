@@ -71,7 +71,7 @@ def test_load_dataset_preprocesses_for_mobilenet(dataset: Path) -> None:
 def test_load_dataset_reports_a_missing_dataroot(tmp_path: Path) -> None:
     """A missing dataset directory names the path and how to fix it."""
     config = TrainConfig(name="x", dataroot=tmp_path / "absent")
-    with pytest.raises(FileNotFoundError, match="training directory not found"):
+    with pytest.raises(FileNotFoundError, match="train directory not found"):
         load_dataset(config)
 
 
@@ -83,14 +83,14 @@ def test_load_dataset_reports_an_empty_dataroot(tmp_path: Path) -> None:
 
 
 def test_prepare_training_data_splits_and_batches(dataset: Path) -> None:
-    """The split honours test_size and yields correctly shaped batches."""
-    config = TrainConfig(name="x", dataroot=dataset, batch_size=2, test_size=0.25)
+    """The split honours val_size and yields correctly shaped batches."""
+    config = TrainConfig(name="x", dataroot=dataset, batch_size=2, val_size=0.25)
     images, labels = load_dataset(config)
 
     data = prepare_training_data(config, images, labels)
 
     assert len(data.train_images) == 12
-    assert len(data.test_images) == 4
+    assert len(data.val_images) == 4
     assert data.steps_per_epoch == 6
     assert data.validation_steps == 2
 
@@ -116,4 +116,25 @@ def test_split_is_reproducible(dataset: Path) -> None:
     first = prepare_training_data(config, images, labels)
     second = prepare_training_data(config, images, labels)
 
-    np.testing.assert_array_equal(first.test_images, second.test_images)
+    np.testing.assert_array_equal(first.val_images, second.val_images)
+
+
+def test_load_dataset_reads_the_requested_split(dataset: Path) -> None:
+    """The split argument selects which directory is read."""
+    from PIL import Image
+
+    test_dir = dataset / "test" / CLASS_NAMES[0]
+    test_dir.mkdir(parents=True)
+    Image.new("RGB", (16, 16)).save(test_dir / "a.png")
+
+    images, labels = load_dataset(TrainConfig(name="x", dataroot=dataset), split="test")
+
+    assert images.shape == (1, 224, 224, 3)
+    np.testing.assert_array_equal(labels[0], [1.0, 0.0])
+
+
+def test_load_dataset_names_the_missing_split(tmp_path: Path) -> None:
+    """The error message names the split that was not found."""
+    config = TrainConfig(name="x", dataroot=tmp_path)
+    with pytest.raises(FileNotFoundError, match="test directory not found"):
+        load_dataset(config, split="test")

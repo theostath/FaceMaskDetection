@@ -91,6 +91,21 @@ class BaseConfig:
             raise ValueError(f"batch_size must be at least 1, got {self.batch_size}")
 
     @property
+    def train_dir(self) -> Path:
+        """Directory holding the training images, one folder per class."""
+        return self.dataroot / "train"
+
+    @property
+    def test_dir(self) -> Path:
+        """Directory holding the held-out test images, one folder per class."""
+        return self.dataroot / "test"
+
+    @property
+    def has_test_split(self) -> bool:
+        """Whether a held-out test set is available alongside the training data."""
+        return self.test_dir.is_dir()
+
+    @property
     def experiment_dir(self) -> Path:
         """Directory holding every artifact produced by this run."""
         return self.checkpoints_dir / self.name
@@ -114,6 +129,11 @@ class BaseConfig:
     def train_log_path(self) -> Path:
         """Path of the appended per-epoch training log."""
         return self.experiment_dir / f"train_logs_{self.n_epochs}_{self.name}.txt"
+
+    @property
+    def evaluation_path(self) -> Path:
+        """Path of the saved classification reports."""
+        return self.experiment_dir / f"evaluation_{self.name}.txt"
 
     @property
     def settings_path(self) -> Path:
@@ -155,13 +175,15 @@ class TrainConfig(BaseConfig):
         lr: Initial learning rate for Adam.
         beta1: Exponential decay rate for Adam's first moment estimates.
         beta2: Exponential decay rate for Adam's second moment estimates.
-        test_size: Fraction of the data held out for validation.
+        val_size: Fraction of the training data held back for validation. This
+            is distinct from the held-out test set under ``dataroot/test``,
+            which the model never sees during training.
     """
 
     lr: float = 1e-4
     beta1: float = 0.9
     beta2: float = 0.999
-    test_size: float = 0.20
+    val_size: float = 0.20
 
     phase: ClassVar[str] = "train"
 
@@ -178,8 +200,8 @@ class TrainConfig(BaseConfig):
             raise ValueError(f"beta1 must be in [0, 1), got {self.beta1}")
         if not 0 <= self.beta2 < 1:
             raise ValueError(f"beta2 must be in [0, 1), got {self.beta2}")
-        if not 0 < self.test_size < 1:
-            raise ValueError(f"test_size must be in (0, 1), got {self.test_size}")
+        if not 0 < self.val_size < 1:
+            raise ValueError(f"val_size must be in (0, 1), got {self.val_size}")
 
 
 @dataclass

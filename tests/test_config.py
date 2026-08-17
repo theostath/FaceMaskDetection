@@ -74,8 +74,8 @@ def test_suffix_referencing_an_unknown_field_is_rejected() -> None:
         ({"lr": 0}, "lr must be positive"),
         ({"beta1": 1.0}, r"beta1 must be in \[0, 1\)"),
         ({"beta2": -0.1}, r"beta2 must be in \[0, 1\)"),
-        ({"test_size": 0}, r"test_size must be in \(0, 1\)"),
-        ({"test_size": 1}, r"test_size must be in \(0, 1\)"),
+        ({"val_size": 0}, r"val_size must be in \(0, 1\)"),
+        ({"val_size": 1}, r"val_size must be in \(0, 1\)"),
     ],
 )
 def test_invalid_training_settings_are_rejected(kwargs: dict, message: str) -> None:
@@ -117,3 +117,26 @@ def test_save_writes_the_settings_and_creates_the_directory(tmp_path: Path) -> N
 
     assert config.settings_path.is_file()
     assert "Run" in config.settings_path.read_text(encoding="utf-8")
+
+
+def test_split_directories_are_derived_from_dataroot() -> None:
+    """Both splits hang off dataroot."""
+    config = TrainConfig(name="x", dataroot="data")
+    assert config.train_dir == Path("data/train")
+    assert config.test_dir == Path("data/test")
+
+
+def test_has_test_split_detects_a_held_out_set(tmp_path: Path) -> None:
+    """A held-out test set is recognised only when the directory exists."""
+    config = TrainConfig(name="x", dataroot=tmp_path)
+    assert config.has_test_split is False
+
+    config.test_dir.mkdir()
+    assert config.has_test_split is True
+
+
+def test_evaluation_report_path() -> None:
+    """The classification reports are saved beside the other artifacts."""
+    config = TrainConfig(name="MaskDetect")
+    assert config.evaluation_path.name == "evaluation_MaskDetect.txt"
+    assert config.evaluation_path.parent == config.experiment_dir

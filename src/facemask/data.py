@@ -15,7 +15,6 @@ previous implementation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 from keras.preprocessing.image import ImageDataGenerator
@@ -24,51 +23,32 @@ from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
 
 from facemask.config import CLASS_NAMES, IMAGE_SIZE, TrainConfig
-
-#: File extensions treated as images, matching what imutils.paths.list_images
-#: accepted in the previous implementation.
-IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"})
+from facemask.images import find_images
 
 
 @dataclass(frozen=True)
 class TrainingData:
-    """A dataset split into training and validation halves.
+    """Training images split into a fitting half and a validation half.
+
+    This validation split is carved out of ``dataroot/train`` and is used to
+    monitor training. It is not the held-out test set, which lives under
+    ``dataroot/test`` and is only touched once training has finished.
 
     Attributes:
-        generator: Yields augmented batches drawn from the training split.
-        train_images: Training images, shape ``(n, 224, 224, 3)``.
-        test_images: Validation images, shape ``(m, 224, 224, 3)``.
-        test_labels: One-hot validation labels, shape ``(m, 2)``.
+        generator: Yields augmented batches drawn from the fitting split.
+        train_images: Images used for fitting, shape ``(n, 224, 224, 3)``.
+        val_images: Validation images, shape ``(m, 224, 224, 3)``.
+        val_labels: One-hot validation labels, shape ``(m, 2)``.
         steps_per_epoch: Batches to draw per epoch from the generator.
         validation_steps: Batches to use per validation pass.
     """
 
     generator: object
     train_images: np.ndarray
-    test_images: np.ndarray
-    test_labels: np.ndarray
+    val_images: np.ndarray
+    val_labels: np.ndarray
     steps_per_epoch: int
     validation_steps: int
-
-
-def find_images(directory: Path) -> list[Path]:
-    """Recursively collect image files beneath a directory, in a stable order.
-
-    Replaces ``imutils.paths.list_images``. Sorting makes dataset order
-    reproducible across platforms, which the previous implementation did not
-    guarantee because it depended on filesystem walk order.
-
-    Args:
-        directory: Directory to search.
-
-    Returns:
-        Sorted paths of every image file found beneath ``directory``.
-    """
-    return sorted(
-        path
-        for path in directory.rglob("*")
-        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
-    )
 
 
 def encode_labels(names: list[str]) -> np.ndarray:
@@ -97,34 +77,36 @@ def encode_labels(names: list[str]) -> np.ndarray:
     return encoded
 
 
-def load_dataset(config: TrainConfig) -> tuple[np.ndarray, np.ndarray]:
-    """Load and preprocess every training image.
+def load_dataset(config: TrainConfig, split: str = "train") -> tuple[np.ndarray, np.ndarray]:
+    """Load and preprocess every image in one split of the dataset.
 
     Each image is resized to 224x224 and scaled to the range [-1, 1] expected
     by MobileNetV2.
 
     Args:
         config: Settings supplying ``dataroot``.
+        split: Subdirectory to read, ``"train"`` or ``"test"``.
 
     Returns:
         A pair of ``(images, labels)``; images have shape ``(n, 224, 224, 3)``
         and labels are one-hot with shape ``(n, 2)``.
 
     Raises:
-        FileNotFoundError: If the train directory is absent or holds no images.
+        FileNotFoundError: If the split directory is absent or holds no images.
     """
-    train_dir = config.dataroot / "train"
-    if not train_dir.is_dir():
+    directory = config.dataroot / split
+    if not directory.is_dir():
         raise FileNotFoundError(
-            f"training directory not found: {train_dir}\n"
-            "Download the dataset and unpack it so that "
-            f"{train_dir / 'with_mask'} and {train_dir / 'without_mask'} exist."
+            f"{split} directory not found: {directory}\n"
+            "Download a dataset and arrange it so that "
+            f"{directory / 'with_mask'} and {directory / 'without_mask'} exist. "
+            "See the README for dataset sources."
         )
 
-    print("(Info) loading images...")
-    paths = find_images(train_dir)
+    print(f"(Info) loading {split} images...")
+    paths = find_images(directory)
     if not paths:
-        raise FileNotFoundError(f"no images found beneath {train_dir}")
+        raise FileNotFoundError(f"no images found beneath {directory}")
 
     images = []
     names = []
@@ -133,20 +115,20 @@ def load_dataset(config: TrainConfig) -> tuple[np.ndarray, np.ndarray]:
         images.append(preprocess_input(img_to_array(image)))
         names.append(path.parent.name)
 
-    print(f"(Info) loaded {len(images)} images across {len(set(names))} classes")
+    print(f"(Info) loaded {len(images)} {split} images across {len(set(names))} classes")
     return np.array(images, dtype="float32"), encode_labels(names)
 
 
 def prepare_training_data(
     config: TrainConfig, images: np.ndarray, labels: np.ndarray
 ) -> TrainingData:
-    """Split the dataset and build an augmenting generator for the training half.
+    """Split the training data and build an augmenting generator for the fitting half.
 
     Augmentation applies random rotation, shifts, shear, zoom, and optionally a
     horizontal flip, which helps the network generalise beyond the training set.
 
     Args:
-        config: Settings supplying ``test_size``, ``batch_size``, and ``flip``.
+        config: Settings supplying ``val_size``, ``batch_size``, and ``flip``.
         images: Preprocessed images from :func:`load_dataset`.
         labels: Matching one-hot labels.
 
@@ -156,20 +138,20 @@ def prepare_training_data(
     Raises:
         ValueError: If the split leaves too few images to form a single batch.
     """
-    train_images, test_images, train_labels, test_labels = train_test_split(
+    train_images, val_images, train_labels, val_labels = train_test_split(
         images,
         labels,
-        test_size=config.test_size,
+        test_size=config.val_size,
         stratify=labels,
         random_state=42,
     )
 
     steps_per_epoch = len(train_images) // config.batch_size
-    validation_steps = len(test_images) // config.batch_size
+    validation_steps = len(val_images) // config.batch_size
     if steps_per_epoch < 1 or validation_steps < 1:
         raise ValueError(
             f"batch_size {config.batch_size} is too large for this dataset: "
-            f"{len(train_images)} training and {len(test_images)} validation images "
+            f"{len(train_images)} fitting and {len(val_images)} validation images "
             "yield fewer than one batch. Use a smaller --batch-size."
         )
 
@@ -186,8 +168,8 @@ def prepare_training_data(
     return TrainingData(
         generator=augmenter.flow(train_images, train_labels, batch_size=config.batch_size),
         train_images=train_images,
-        test_images=test_images,
-        test_labels=test_labels,
+        val_images=val_images,
+        val_labels=val_labels,
         steps_per_epoch=steps_per_epoch,
         validation_steps=validation_steps,
     )

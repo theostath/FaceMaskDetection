@@ -98,12 +98,13 @@ def build_train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--beta1", type=float, default=0.9, help="Adam beta_1")
     parser.add_argument("--beta2", type=float, default=0.999, help="Adam beta_2")
     parser.add_argument(
+        "--val-size",
         "--test-size",
         "--test_size",
-        dest="test_size",
+        dest="val_size",
         type=float,
         default=0.20,
-        help="fraction of the data held out for validation",
+        help="fraction of the training data held back for validation",
     )
     parser.add_argument(
         "--no-flip",
@@ -190,7 +191,7 @@ def train_main(argv: Sequence[str] | None = None) -> int:
             lr=args.lr,
             beta1=args.beta1,
             beta2=args.beta2,
-            test_size=args.test_size,
+            val_size=args.val_size,
         )
         train(config, show_figure=args.show_figure)
     except (FileNotFoundError, ValueError, RuntimeError) as error:

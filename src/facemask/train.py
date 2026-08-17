@@ -10,7 +10,7 @@ import numpy as np
 from sklearn.metrics import classification_report
 
 from facemask.config import CLASS_NAMES, TrainConfig
-from facemask.data import TrainingData, load_dataset, prepare_training_data
+from facemask.data import load_dataset, prepare_training_data
 from facemask.model import build_model, print_summary, save_summary
 
 if TYPE_CHECKING:
@@ -74,28 +74,54 @@ def write_training_log(history: History, config: TrainConfig, steps_per_epoch: i
         log_file.write("\n" + "\n".join(lines) + "\n\n")
 
 
-def evaluate(model: Model, data: TrainingData, config: TrainConfig) -> str:
-    """Score the trained network on the validation split.
+def evaluate(
+    model: Model,
+    images: np.ndarray,
+    labels: np.ndarray,
+    config: TrainConfig,
+    title: str = "validation",
+) -> str:
+    """Score the trained network on a set of images.
 
     Args:
         model: The trained network.
-        data: The split holding the validation images and labels.
+        images: Images to score.
+        labels: Matching one-hot labels.
         config: Settings supplying the batch size.
+        title: Name of the set, used in the printed heading.
 
     Returns:
         The scikit-learn classification report as a string.
     """
-    print("(Info) evaluating network...")
-    probabilities = model.predict(data.test_images, batch_size=config.batch_size)
+    print(f"(Info) evaluating network on the {title} set ({len(images)} images)...")
+    probabilities = model.predict(images, batch_size=config.batch_size)
     predictions = np.argmax(probabilities, axis=1)
 
     report = classification_report(
-        data.test_labels.argmax(axis=1),
+        labels.argmax(axis=1),
         predictions,
         target_names=list(CLASS_NAMES),
     )
     print(report)
     return report
+
+
+def write_evaluation_report(reports: dict[str, str], config: TrainConfig) -> None:
+    """Save the classification reports for every scored set.
+
+    Args:
+        reports: Report text keyed by the name of the set it describes.
+        config: Settings supplying the output path.
+    """
+    config.experiment_dir.mkdir(parents=True, exist_ok=True)
+    sections = [
+        f"================ {name} ================\n{report}" for name, report in reports.items()
+    ]
+    with config.evaluation_path.open("a", encoding="utf-8") as report_file:
+        report_file.write(f"Run of {time.strftime('%c')}\n\n")
+        report_file.write("\n".join(sections))
+        report_file.write("\n\n")
+    print(f"(Info) evaluation saved to {config.evaluation_path}")
 
 
 def train(config: TrainConfig, show_figure: bool = True) -> Model:
@@ -128,7 +154,7 @@ def train(config: TrainConfig, show_figure: bool = True) -> Model:
         data.generator,
         steps_per_epoch=data.steps_per_epoch,
         epochs=config.n_epochs,
-        validation_data=(data.test_images, data.test_labels),
+        validation_data=(data.val_images, data.val_labels),
         validation_steps=data.validation_steps,
     )
 
@@ -138,6 +164,20 @@ def train(config: TrainConfig, show_figure: bool = True) -> Model:
 
     write_training_log(history, config, data.steps_per_epoch)
     plot_history(history, config, show=show_figure)
-    evaluate(model, data, config)
+
+    reports = {"validation": evaluate(model, data.val_images, data.val_labels, config)}
+
+    # The validation split guided training, so it is no longer an unbiased
+    # estimate. Score the held-out test set too, when one is present.
+    if config.has_test_split:
+        test_images, test_labels = load_dataset(config, split="test")
+        reports["test"] = evaluate(model, test_images, test_labels, config, title="held-out test")
+    else:
+        print(
+            f"(Info) no held-out test set at {config.test_dir}; "
+            "reported scores come from the validation split only"
+        )
+
+    write_evaluation_report(reports, config)
 
     return model

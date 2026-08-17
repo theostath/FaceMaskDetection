@@ -20,7 +20,7 @@ def test_train_defaults_match_the_config_defaults() -> None:
     assert args.n_epochs == 20
     assert args.batch_size == 32
     assert args.lr == pytest.approx(1e-4)
-    assert args.test_size == pytest.approx(0.20)
+    assert args.val_size == pytest.approx(0.20)
     assert args.flip is True
     assert args.show_figure is True
 
@@ -123,3 +123,9 @@ def test_detect_main_rejects_an_out_of_range_confidence(tmp_path: Path, capsys) 
     )
     assert code == 1
     assert "confidence must be in [0, 1]" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("flag", ["--val-size", "--test-size", "--test_size"])
+def test_validation_fraction_accepts_every_spelling(flag: str) -> None:
+    """The renamed option keeps its previous spellings working."""
+    assert build_train_parser().parse_args([flag, "0.3"]).val_size == pytest.approx(0.3)
