@@ -16,6 +16,8 @@ classified and labelled in place.
 - [Install](#install)
 - [Dataset](#dataset)
 - [Usage](#usage)
+- [Results](#results)
+- [Limitations](#limitations)
 - [How it works](#how-it-works)
 - [Tests](#tests)
 - [Project layout](#project-layout)
@@ -33,7 +35,8 @@ cd FaceMaskDetection
 pip install -e .
 ```
 
-That installs two commands, `facemask-train` and `facemask-detect`.
+That installs three commands: `facemask-prepare`, `facemask-train` and
+`facemask-detect`.
 
 For development, install the test and lint extras as well:
 
@@ -43,22 +46,61 @@ pip install -e ".[dev]"
 
 ## Dataset
 
-Download the dataset from this link:
-<https://data-flair.training/blogs/download-face-mask-data/>
+Neither dataset below needs a Kaggle account. Both ship as one folder per
+class, which `facemask-prepare` splits into training and test sets.
 
-Unzip it so that the class directories sit beneath `train`:
+| Source | Images | License |
+| --- | --- | --- |
+| [chandrikadeb7/Face-Mask-Detection](https://github.com/chandrikadeb7/Face-Mask-Detection) | 4,095 | MIT |
+| [prajnasb/observations](https://github.com/prajnasb/observations) | 1,376 | none stated |
+
+The second is the dataset this project originally used. It was previously
+linked through DataFlair, whose download now returns HTTP 403; `prajnasb` is the
+upstream source and is still available.
+
+Fetch just the images rather than the whole repository:
+
+```bash
+git clone --depth 1 --filter=blob:none --sparse \
+    https://github.com/chandrikadeb7/Face-Mask-Detection.git /tmp/fmd
+git -C /tmp/fmd sparse-checkout set dataset
+```
+
+Then split it into train and test sets:
+
+```bash
+facemask-prepare --source /tmp/fmd/dataset --dest face-mask-dataset
+```
+
+which produces:
 
 ```text
 FaceMaskDetection
 └── face-mask-dataset
-    └── train
+    ├── train
+    │   ├── with_mask
+    │   └── without_mask
+    └── test
         ├── with_mask
         └── without_mask
 ```
 
-Directory names are the class labels and must match exactly; any other name is
-rejected rather than silently mis-encoded. Point `--dataroot` elsewhere if you
-keep the data outside the repository.
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--source` | required | Directory holding `with_mask/` and `without_mask/` |
+| `--dest` | `face-mask-dataset` | Where to create `train/` and `test/` |
+| `--test-fraction` | `0.2` | Share of each class held out for testing |
+| `--seed` | `42` | Shuffle seed |
+| `--move` | off | Move files instead of copying them |
+
+The split is stratified, so both classes keep their proportions, and seeded, so
+the same source always produces the same split. Class directory names must be
+exactly `with_mask` and `without_mask`; anything else is rejected rather than
+silently mis-encoded.
+
+Arranging the directories by hand works just as well. Only `train/` is required
+— if `test/` is absent, training reports validation scores alone and says so.
+Point `--dataroot` elsewhere to keep the data outside the repository.
 
 ## Usage
 
@@ -75,6 +117,7 @@ Every artifact is written to `checkpoints/<name>/`:
 | `model-<n_epochs>_<name>.h5` | The trained network |
 | `accuracy_figure_<name>.png` | Accuracy and loss per epoch |
 | `train_logs_<n_epochs>_<name>.txt` | Per-epoch metrics, appended across runs |
+| `evaluation_<name>.txt` | Classification reports, appended across runs |
 | `train_opt.txt` | The settings the run used |
 | `model_summary.txt` | Network architecture, with `--verbose` |
 
@@ -87,14 +130,18 @@ Every artifact is written to `checkpoints/<name>/`:
 | `--batch-size` | `32` | Images per batch |
 | `--lr` | `0.0001` | Initial Adam learning rate |
 | `--beta1`, `--beta2` | `0.9`, `0.999` | Adam decay rates |
-| `--test-size` | `0.2` | Fraction held out for validation |
+| `--val-size` | `0.2` | Fraction of `train/` held back for validation |
 | `--no-flip` | off | Disable horizontal flips during augmentation |
 | `--no-show-figure` | off | Save the figure without opening a window |
 | `--suffix` | empty | Template appended to the name, e.g. `{n_epochs}ep` |
 | `--verbose` | off | Print and save the network architecture |
 
-Training reports a classification report over the validation split when it
-finishes. Use `--no-show-figure` to run unattended.
+Two sets are scored when training finishes. The **validation** split is carved
+out of `train/` by `--val-size` and guides training, so its score is optimistic.
+The **held-out test** set under `test/` is never seen during training, so it is
+the honest number. Both are printed and appended to `evaluation_<name>.txt`.
+
+Use `--no-show-figure` to run unattended.
 
 ### Detect
 
@@ -117,6 +164,73 @@ face. Press `Escape` to quit.
 `--name` and `--n-epochs` must match the training run, since together they name
 the checkpoint. Both commands accept underscored spellings too, so `--n_epochs`
 and `--batch_size` work alongside `--n-epochs` and `--batch-size`.
+
+## Results
+
+Training the defaults on the chandrikadeb7 dataset, split with
+`facemask-prepare --test-fraction 0.2`:
+
+```bash
+facemask-prepare --source /tmp/fmd/dataset --dest face-mask-dataset
+facemask-train --name MaskDetect --no-show-figure
+```
+
+| Set | Images | Accuracy |
+| --- | --- | --- |
+| Validation, split from `train/` | 655 | 0.99 |
+| Held-out test, from `test/` | 818 | **0.98** |
+
+```text
+held-out test   precision    recall  f1-score   support
+
+   with_mask         0.98      0.99      0.98       432
+without_mask         0.99      0.97      0.98       386
+
+    accuracy                             0.98       818
+```
+
+The held-out figure is the one to quote: those 818 images played no part in
+fitting or in any decision about the run. The one-point gap against validation
+is the optimism described in [ADR 0004](docs/adr/0004-hold-out-a-test-set.md).
+
+Numbers will shift with a different dataset, split fraction, or seed.
+
+## Limitations
+
+The 0.98 above is measured on images drawn from the same distribution as the
+training set. Live camera input is not that distribution, and the gap shows.
+
+**Any lower-face occlusion reads as a mask.** Covering your mouth with a hand
+is classified `Mask` at over 99% confidence. The training set contains exactly
+two kinds of image: faces wearing masks, and clear unobstructed faces. It
+contains no face occluded by something that is not a mask, so the network has
+no basis for separating "mask" from "obscured", and has effectively learned the
+latter. A scarf, a raised collar, or a hand all trigger it.
+
+**Confidence is not reliability.** That misclassification carries a higher
+score than most correct ones. Softmax outputs are only meaningful over the
+classes the network was trained to distinguish; on an input unlike anything it
+has seen, a high number means the input landed deep inside a region of feature
+space, not that the answer is right. Raising `--confidence` does not filter
+these out.
+
+**Frontal faces only.** Detection uses a Haar cascade, which wants a
+reasonably well-lit, forward-facing face. Profiles, steep angles, and low light
+mean no box at all -- the classifier is never consulted.
+
+**Two classes only.** There is no `mask_worn_incorrectly`. A mask below the
+nose is simply `Mask`.
+
+**Dataset bias carries through.** The lighting, demographics, and mask types in
+the training images bound where the model works. Neither dataset linked above
+documents its composition.
+
+Closing the occlusion gap needs training data that represents it -- hand-over-
+face and scarf images as `without_mask`, or a third `occluded` class. That is a
+data problem, not a code one, and no threshold tuning substitutes for it.
+
+Treat this as a demonstration of transfer learning. It is not suitable for
+access control, compliance monitoring, or any decision affecting a person.
 
 ## How it works
 
@@ -159,11 +273,13 @@ FaceMaskDetection
 ├── pyproject.toml            packaging, dependencies, ruff and pytest config
 ├── src/facemask
 │   ├── config.py             typed settings and every derived output path
-│   ├── data.py               dataset discovery, loading, augmentation
+│   ├── images.py             image file discovery, free of TensorFlow
+│   ├── data.py               dataset loading and augmentation
+│   ├── prepare.py            splitting a flat dataset into train and test
 │   ├── model.py              network construction, saving, loading
 │   ├── train.py              training, logging, evaluation
 │   ├── detect.py             camera loop and frame annotation
-│   └── cli.py                facemask-train and facemask-detect
+│   └── cli.py                the three console commands
 ├── tests                     pytest suite
 ├── docs/adr                  architecture decision records
 └── .github/workflows/ci.yml  lint and test on push and pull request
